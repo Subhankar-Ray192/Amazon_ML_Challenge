@@ -1,8 +1,9 @@
+from google.colab import drive
+drive.mount('/content/drive')
+
 import shutil
 import os
 import pandas as pd
-import numpy as np
-import multiprocessing
 import time
 from tqdm import tqdm
 from pathlib import Path
@@ -10,9 +11,8 @@ from functools import partial
 import urllib.request
 from PIL import Image
 import re
-import concurrent.futures
-import uuid
-
+import multiprocessing
+import uuid  # Use uuid module for generating unique IDs
 
 class GLOBAL_VAR:
     def __init__(self):
@@ -53,6 +53,8 @@ class GLOBAL_VAR:
         }
 
         self.ALLOWED_UNITS = {unit for entity in self.ENTITY_UNIT_MAP for unit in self.ENTITY_UNIT_MAP[entity]}
+        self.CATEGORY = {entity for entity in self.ENTITY_UNIT_MAP}
+        self.CATEGORY_PATH = {os.path.join(self.IMG_PATH, entity) for entity in self.CATEGORY}
 
 
 class PACKAGE(GLOBAL_VAR):
@@ -66,13 +68,14 @@ class PACKAGE(GLOBAL_VAR):
         ]
         for path in paths:
             if not os.path.exists(path):
-                os.mkdir(path)
+                os.makedirs(path)
 
 
 class RESOURCE(GLOBAL_VAR):
-    def __init__(self, DONWLOAD_IMGS):
+    def __init__(self, downloader):
         super().__init__()
-        self.DOWNLOADER = DONWLOAD_IMGS
+        self.DOWNLOADER = downloader
+        self.processed_groups = set()  # Keep track of processed group_ids
 
     def create_sample(self):
         if os.path.exists(self.DATA_PATH) and os.path.exists(self.SAMPLE_PATH):
@@ -80,32 +83,43 @@ class RESOURCE(GLOBAL_VAR):
             shutil.copy(self.TRAIN_PATH, self.RES_PATH)
             shutil.copy(self.TEST_PATH, self.RES_PATH)
 
-    def read_sample_batch(self):
+    def read_sample_batch(self, START, END):
         SRC_TRAIN_FILE = os.path.join(self.RES_PATH, "train.csv")
         if os.path.exists(SRC_TRAIN_FILE):
             self.DATA_FRAME = pd.read_csv(SRC_TRAIN_FILE)
             self.NUM_ROWS = self.DATA_FRAME.shape[0]
             self.NUM_COLS = self.DATA_FRAME.shape[1]
+            self.BATCH_SIZE = 100
+            print(f"Number of rows: {self.NUM_ROWS}")
+            print(f"Number of columns: {self.NUM_COLS}")
 
-            # Get the first 10 image links
-            LINKS = self.DATA_FRAME.iloc[:10, 0].tolist()
+            # Fix the slicing to go from START to END
+            self.LINKS = self.DATA_FRAME.iloc[START:END, 0].tolist()
+            self.GROUP_ID = self.DATA_FRAME.iloc[START:END, 1].tolist()
+            self.createGROUPS(self.GROUP_ID)
 
-            # Use concurrent.futures for multi-threading
-            with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
-                futures = []
-                for index, link in enumerate(LINKS):
-                    unique_filename = f"IMG_SAMPLE_{uuid.uuid4().hex}.jpg"  # Generate unique filename
-                    save_path = os.path.join(self.IMG_PATH, unique_filename)
-                    futures.append(executor.submit(self.DOWNLOADER.download_image, link, save_path))
+            self.CATEGORY_D = self.DATA_FRAME.iloc[START:END, 2].tolist()
+            self.DOWNLOADER.download_images(self.LINKS, self.GROUP_ID, self.CATEGORY_D)
 
-                for future in concurrent.futures.as_completed(futures):
-                    try:
-                        future.result()  # Retrieve result to check for exceptions
-                    except Exception as e:
-                        print(f"Error in downloading image: {e}")
+    def createGROUPS(self, group_ids):
+        for group_id in group_ids:
+            # Check if the group_id has already been processed
+            if group_id not in self.processed_groups:
+                group_path = os.path.join(self.IMG_PATH, str(group_id))
+                # Ensure thread-safe directory creation
+                Path(group_path).mkdir(parents=True, exist_ok=True)
+
+                # Create category folders inside the group folder
+                for category in self.CATEGORY:
+                    category_path = os.path.join(self.IMG_PATH, str(group_id), category)
+                    # Ensure thread-safe directory creation
+                    Path(category_path).mkdir(parents=True, exist_ok=True)
+
+                # Add group_id to the processed set to prevent re-processing
+                self.processed_groups.add(group_id)
 
 
-class DONWLOAD_IMGS(GLOBAL_VAR):
+class DOWNLOAD_IMGS(GLOBAL_VAR):
     def __init__(self):
         super().__init__()
 
@@ -124,62 +138,72 @@ class DONWLOAD_IMGS(GLOBAL_VAR):
             return None, None
         pattern = re.compile(r'^-?\d+(\.\d+)?\s+[a-zA-Z\s]+$')
         if not pattern.match(s_stripped):
-            raise ValueError("Invalid format in {}".format(s))
+            raise ValueError(f"Invalid format in {s}")
         parts = s_stripped.split(maxsplit=1)
         number = float(parts[0])
         unit = self.common_mistake(parts[1])
         if unit not in self.ALLOWED_UNITS:
-            raise ValueError("Invalid unit [{}] found in {}. Allowed units: {}".format(
-                unit, s, self.ALLOWED_UNITS))
+            raise ValueError(f"Invalid unit [{unit}] found in {s}. Allowed units: {self.ALLOWED_UNITS}")
         return number, unit
 
-    def create_placeholder_image(self, image_save_path):
+    def create_placeholder_image(self, image_name, category):
         try:
             placeholder_image = Image.new('RGB', (100, 100), color='black')
+            image_save_path = os.path.join(self.IMG_PATH, category, image_name)
             placeholder_image.save(image_save_path)
         except Exception as e:
             print(f"Error creating placeholder image: {e}")
 
-    def download_image(self, image_link, save_path, retries=3, delay=3):
+    def download_image(self, image_link, group_id, category, retries=3, delay=3):
         if not isinstance(image_link, str):
             return
 
-        if os.path.exists(save_path):
-            return
+        # Create a path using IMG_PATH and category
+        category_path = os.path.join(self.IMG_PATH, str(group_id), category)
+
+        # Ensure thread-safe directory creation
+        Path(category_path).mkdir(parents=True, exist_ok=True)
+
+        # Modify the image name to IMG-{UUID}.jpg
+        image_name = f"IMG-{uuid.uuid4().hex}.jpg"  # Use uuid4() to generate a unique ID
+        image_save_path = os.path.join(category_path, image_name)
 
         for _ in range(retries):
             try:
-                urllib.request.urlretrieve(image_link, save_path)
+                urllib.request.urlretrieve(image_link, image_save_path)
                 return
             except Exception as e:
                 print(f"Error downloading image: {e}")
                 time.sleep(delay)
 
         # Create a placeholder image if download fails
-        self.create_placeholder_image(save_path)
+        self.create_placeholder_image(image_name, category)
 
-    def download_images(self, image_links, allow_multiprocessing=True):
+    def download_images(self, image_links, group_ids, categories, allow_multiprocessing=True):
         if not os.path.exists(self.IMG_PATH):
             os.makedirs(self.IMG_PATH)
 
         if allow_multiprocessing:
-            download_image_partial = partial(self.download_image, retries=3, delay=3)
-
-            with multiprocessing.Pool(64) as pool:
-                list(tqdm(pool.imap(download_image_partial, image_links), total=len(image_links)))
-                pool.close()
-                pool.join()
+            # Use partial to pass both image_links, group_ids, and categories
+            with multiprocessing.Pool(8) as pool:
+                pool.starmap(self.download_image, tqdm(zip(image_links, group_ids, categories), total=len(image_links)))
         else:
-            for image_link in tqdm(image_links, total=len(image_links)):
-                self.download_image(image_link, retries=3, delay=3)
+            for image_link, group_id, category in tqdm(zip(image_links, group_ids, categories), total=len(image_links)):
+                self.download_image(image_link, group_id, category)
+
+
+def main():
+    package = PACKAGE()
+    package.create_folder()
+
+    resource = RESOURCE(DOWNLOAD_IMGS())
+    resource.create_sample()
+
+    # Adjust the START and END parameters as needed
+    START = 0
+    END = 10
+    resource.read_sample_batch(START, END)
 
 
 if __name__ == "__main__":
-    package_obj = PACKAGE()
-    package_obj.create_folder()
-
-    download_imgs_obj = DONWLOAD_IMGS()  # Create an instance of DONWLOAD_IMGS
-
-    resource_obj = RESOURCE(download_imgs_obj)  # Pass the instance to RESOURCE
-    resource_obj.create_sample()
-    resource_obj.read_sample_batch()  # Call the batch method to download images in parallel
+    main()
