@@ -1,6 +1,14 @@
 from google.colab import drive
 drive.mount('/content/drive')
 
+# Install Tesseract and pytesseract if not already installed
+!apt-get update
+!apt-get install -y tesseract-ocr
+!pip install pytesseract
+
+# Configure pytesseract to point to the Tesseract executable
+pytesseract.pytesseract.tesseract_cmd = '/usr/bin/tesseract'
+
 import shutil
 import os
 import pandas as pd
@@ -10,6 +18,7 @@ from pathlib import Path
 from functools import partial
 import urllib.request
 from PIL import Image
+import pytesseract
 import re
 import multiprocessing
 import uuid  # Use uuid module for generating unique IDs
@@ -57,9 +66,11 @@ class GLOBAL_VAR:
         self.CATEGORY_PATH = {os.path.join(self.IMG_PATH, entity) for entity in self.CATEGORY}
 
 
-class PACKAGE(GLOBAL_VAR):
-    def __init__(self):
+class RESOURCE(GLOBAL_VAR):
+    def __init__(self, downloader):
         super().__init__()
+        self.DOWNLOADER = downloader
+        self.processed_groups = set()  # Keep track of processed group_ids
 
     def create_folder(self):
         paths = [
@@ -70,26 +81,18 @@ class PACKAGE(GLOBAL_VAR):
             if not os.path.exists(path):
                 os.makedirs(path)
 
-
-class RESOURCE(GLOBAL_VAR):
-    def __init__(self, downloader):
-        super().__init__()
-        self.DOWNLOADER = downloader
-        self.processed_groups = set()  # Keep track of processed group_ids
-
     def create_sample(self):
         if os.path.exists(self.DATA_PATH) and os.path.exists(self.SAMPLE_PATH):
-            shutil.copy(self.SAMPLE_PATH, self.RES_PATH)
-            shutil.copy(self.TRAIN_PATH, self.RES_PATH)
-            shutil.copy(self.TEST_PATH, self.RES_PATH)
+            shutil.copy(self.TRAIN_PATH, self.OUT_TRAIN_PATH)
+            shutil.copy(self.TEST_PATH, self.OUT_TEST_PATH)
 
     def read_sample_batch(self, START, END):
-        SRC_TRAIN_FILE = os.path.join(self.RES_PATH, "train.csv")
+        SRC_TRAIN_FILE = os.path.join(self.OUT_TRAIN_PATH, "train.csv")
         if os.path.exists(SRC_TRAIN_FILE):
             self.DATA_FRAME = pd.read_csv(SRC_TRAIN_FILE)
             self.NUM_ROWS = self.DATA_FRAME.shape[0]
             self.NUM_COLS = self.DATA_FRAME.shape[1]
-            self.BATCH_SIZE = 100
+            
             print(f"Number of rows: {self.NUM_ROWS}")
             print(f"Number of columns: {self.NUM_COLS}")
 
@@ -164,46 +167,54 @@ class DOWNLOAD_IMGS(GLOBAL_VAR):
         # Ensure thread-safe directory creation
         Path(category_path).mkdir(parents=True, exist_ok=True)
 
-        # Modify the image name to IMG-{UUID}.jpg
-        image_name = f"IMG-{uuid.uuid4().hex}.jpg"  # Use uuid4() to generate a unique ID
-        image_save_path = os.path.join(category_path, image_name)
+        image_name = f"{uuid.uuid4()}.jpg"
+        image_path = os.path.join(category_path, image_name)
+        if os.path.exists(image_path):
+            print(f"File already exists: {image_path}")
+            return
 
-        for _ in range(retries):
+        for attempt in range(retries):
             try:
-                urllib.request.urlretrieve(image_link, image_save_path)
-                return
+                urllib.request.urlretrieve(image_link, image_path)
+                # Optionally verify the image, e.g., check size or file format
+                print(f"Downloaded image {image_path} successfully.")
+                break
             except Exception as e:
-                print(f"Error downloading image: {e}")
+                print(f"Attempt {attempt + 1} failed with error: {e}. Retrying in {delay} seconds...")
                 time.sleep(delay)
-
-        # Create a placeholder image if download fails
-        self.create_placeholder_image(image_name, category)
+        else:
+            # If all retries fail, create a placeholder image
+            print(f"Failed to download image after {retries} attempts. Creating a placeholder image.")
+            self.create_placeholder_image(image_name, category)
 
     def download_images(self, image_links, group_ids, categories, allow_multiprocessing=True):
-        if not os.path.exists(self.IMG_PATH):
-            os.makedirs(self.IMG_PATH)
-
-        if allow_multiprocessing:
-            # Use partial to pass both image_links, group_ids, and categories
-            with multiprocessing.Pool(8) as pool:
-                pool.starmap(self.download_image, tqdm(zip(image_links, group_ids, categories), total=len(image_links)))
-        else:
+      if allow_multiprocessing:
+            with multiprocessing.Pool(processes=64) as pool:
+                list(tqdm(pool.starmap(self.download_image, zip(image_links, group_ids, categories)), total=len(image_links)))
+                pool.close()
+                pool.join()
+      else:
             for image_link, group_id, category in tqdm(zip(image_links, group_ids, categories), total=len(image_links)):
                 self.download_image(image_link, group_id, category)
 
+if __name__ == "__main__":
+    downloader = DOWNLOAD_IMGS()
+    resource = RESOURCE(downloader)
 
-def main():
-    package = PACKAGE()
-    package.create_folder()
-
-    resource = RESOURCE(DOWNLOAD_IMGS())
+    resource.create_folder()
     resource.create_sample()
 
-    # Adjust the START and END parameters as needed
-    START = 0
-    END = 10
-    resource.read_sample_batch(START, END)
+    resource.read_sample_batch(0, 2000)
+    resource.read_sample_batch(2000, 5000)
 
+    resource.read_sample_batch(5000, 7000)
+    resource.read_sample_batch(7000, 10000)
 
-if __name__ == "__main__":
-    main()
+    resource.read_sample_batch(10000, 12000)
+    resource.read_sample_batch(12000, 15000)
+
+    resource.read_sample_batch(15000, 17000)
+    resource.read_sample_batch(17000, 20000)
+
+    resource.read_sample_batch(20000, 22000)
+    resource.read_sample_batch(22000, 25000)
