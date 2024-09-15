@@ -92,7 +92,7 @@ class RESOURCE(GLOBAL_VAR):
             self.DATA_FRAME = pd.read_csv(SRC_TRAIN_FILE)
             self.NUM_ROWS = self.DATA_FRAME.shape[0]
             self.NUM_COLS = self.DATA_FRAME.shape[1]
-            
+
             print(f"Number of rows: {self.NUM_ROWS}")
             print(f"Number of columns: {self.NUM_COLS}")
 
@@ -167,7 +167,7 @@ class DOWNLOAD_IMGS(GLOBAL_VAR):
         # Ensure thread-safe directory creation
         Path(category_path).mkdir(parents=True, exist_ok=True)
 
-        image_name = f"{uuid.uuid4()}.jpg"
+        image_name = f"IMG_{group_id}_{category}_{uuid.uuid4()}.jpg"
         image_path = os.path.join(category_path, image_name)
         if os.path.exists(image_path):
             print(f"File already exists: {image_path}")
@@ -218,3 +218,5 @@ if __name__ == "__main__":
 
     resource.read_sample_batch(20000, 22000)
     resource.read_sample_batch(22000, 25000)
+
+    print("ALL OK")
