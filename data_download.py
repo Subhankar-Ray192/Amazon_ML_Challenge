@@ -24,6 +24,28 @@ import multiprocessing
 import uuid  # Use uuid module for generating unique IDs
 
 class GLOBAL_VAR:
+    """
+    A class to store global variables and paths used in the project.
+
+    Attributes:
+        DRIVE: The root directory in Google Drive where the dataset is stored.
+        DATA_SET: The relative path to the dataset within the DRIVE.
+        DATA_PATH: The absolute path to the dataset directory.
+        SAMPLE_PATH: The absolute path to the sample test CSV file.
+        TRAIN_PATH: The absolute path to the training CSV file.
+        TEST_PATH: The absolute path to the test CSV file.
+        OUT_ROOT: The name of the root output directory.
+        OUT_DATA: The name of the output data directory.
+        OUT_TRAIN: The name of the output train sample directory.
+        OUT_TEST: The name of the output test sample directory.
+        OUT: The name of the output directory.
+        RES: The name of the resource directory.
+        IMG: The name of the image directory.
+        ENTITY_UNIT_MAP: A dictionary mapping entity types to allowed units.
+        ALLOWED_UNITS: A set of all allowed units across entities.
+        CATEGORY: A set of entity types.
+        CATEGORY_PATH: A set of paths for each category.
+    """
     def __init__(self):
         self.DRIVE = "/content/drive/MyDrive/Amazon_ML_Challenge"
         self.DATA_SET = "66e31d6ee96cd_student_resource_3/student_resource 3/dataset"
@@ -67,6 +89,18 @@ class GLOBAL_VAR:
 
 
 class RESOURCE(GLOBAL_VAR):
+    """
+
+    Attributes:
+      DOWNLOADER: An instance of the DOWNLOAD_IMGS class used to download images.
+      processed_groups: A set to keep track of processed group IDs.
+      DATA_FRAME:
+      NUM_ROWS:
+      NUM_COLS:
+      LINKS:
+      GROUP_ID:
+      CATEGORY_D:
+    """
     def __init__(self, downloader):
         super().__init__()
         self.DOWNLOADER = downloader
@@ -123,6 +157,16 @@ class RESOURCE(GLOBAL_VAR):
 
 
 class DOWNLOAD_IMGS(GLOBAL_VAR):
+    """
+    A class for downloading images from provided links and handling errors.
+
+    Attributes:
+        common_mistake: A method to handle common mistakes in unit representation.
+        parse_string: A method to parse strings into numbers and units.
+        create_placeholder_image: A method to create placeholder images for failed downloads.
+        download_image: A method to download a single image from a link.
+        download_images: A method to download multiple images, optionally using multiprocessing.
+    """
     def __init__(self):
         super().__init__()
 
